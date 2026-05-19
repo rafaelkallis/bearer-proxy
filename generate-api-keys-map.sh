@@ -22,7 +22,7 @@ while IFS= read -r key || [ -n "$key" ]; do
   echo "$key" | grep -q "^#" && continue
   key=$(printf '%s' "$key" | tr -d '\r')
   [ -z "$key" ] && continue
-  escaped_key=$(printf '%s' "$key" | sed 's/[.^$*+?{}\[\]|()\\]/\\&/g')
+  escaped_key=$(printf '%s' "$key" | sed 's/[][.^$*+?{}|()\\]/\\&/g')
   echo "~^[Bb][Ee][Aa][Rr][Ee][Rr]\\s+${escaped_key}$    1;" >> "$API_KEYS_MAP_FILE"
   COUNT=$((COUNT + 1))
 done < "$API_KEYS_FILE"

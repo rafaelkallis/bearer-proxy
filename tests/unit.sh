@@ -46,11 +46,11 @@ assert_eq "normal key: map entry format" \
   "$(cat "$WORK/t1_map")"
 
 # ── Test 2: special characters are regex-escaped ─────────────────────────────
-# key: a.b^c$d*e+f?g{h}i[j]k(l)m\n|o  (the \n is a literal backslash-n)
-printf 'a.b^c$d*e+f?g{h}i[j]k(l)m\\n|o\n' > "$WORK/t2_keys"
+# key covers all chars that must be escaped: . ^ $ [ ] ( ) { } | + * ? \
+printf '%s\n' 'k.e^y$w[i]t(h)s{p}e|c+i*a?l\chars' > "$WORK/t2_keys"
 run_ok "$WORK/t2_keys" "$WORK/t2_map"
 assert_eq "special chars: escaped in map entry" \
-  '~^[Bb][Ee][Aa][Rr][Ee][Rr]\s+a\.b\^c\$d\*e\+f\?g\{h\}i\[j\]k\(l\)m\\n\|o$    1;' \
+  '~^[Bb][Ee][Aa][Rr][Ee][Rr]\s+k\.e\^y\$w\[i\]t\(h\)s\{p\}e\|c\+i\*a\?l\\chars$    1;' \
   "$(cat "$WORK/t2_map")"
 
 # ── Test 3: CRLF line endings are stripped ───────────────────────────────────
