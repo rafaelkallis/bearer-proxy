@@ -42,6 +42,10 @@ API keys file format: one key per line; lines starting with `#` and blank lines 
 
 **API key map**: `generate-api-keys-map.sh` regex-escapes each key and emits a case-insensitive nginx map entry matching `Bearer <key>`. The map file path defaults to `/etc/nginx/api_keys.map` and can be overridden via `API_KEYS_MAP_FILE` (used by the test suite). Mode `600`. Included by `nginx.conf.template` via `include /etc/nginx/api_keys.map`.
 
+Two shell pitfalls to keep in mind when editing the script:
+- **`\\` in sed bracket expressions is unreliable** — POSIX does not define `\` as special inside `[...]`, and behaviour varies across implementations. Backslash must be handled in a dedicated first-pass sed command (`s/\\/\\\\/g`) so the remaining bracket expression never needs to contain `\`.
+- **`echo` interprets `\\` as `\`** — POSIX/XSI `echo` (dash on Ubuntu, `/bin/sh` on macOS) collapses `\\` to `\`. Use `printf '%s\n'` when the string may contain backslashes.
+
 **No hot-reload**: keys are loaded once at startup. Rotating keys requires restarting the container.
 
 **Authorization header is stripped**: nginx removes the `Authorization` header before forwarding. Upstream services never see the bearer token.
