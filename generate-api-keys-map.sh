@@ -2,7 +2,7 @@
 set -e
 
 API_KEYS_FILE="${API_KEYS_FILE:-/run/secrets/api_keys}"
-API_KEYS_MAP_FILE="/etc/nginx/api_keys.map"
+API_KEYS_MAP_FILE="${API_KEYS_MAP_FILE:-/etc/nginx/api_keys.map}"
 
 [ -z "$UPSTREAM" ] && echo "Error: UPSTREAM is required" >&2 && exit 1
 

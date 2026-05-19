@@ -1,0 +1,20 @@
+services:
+  upstream:
+    image: traefik/whoami
+
+  proxy:
+    image: bearer-proxy:test
+    environment:
+      UPSTREAM: http://upstream:80
+      API_KEYS_FILE: /run/secrets/api_keys
+    secrets:
+      - api_keys
+    ports:
+      - "18080:80"
+      - "19494:9494"
+    depends_on:
+      - upstream
+
+secrets:
+  api_keys:
+    file: ./fixtures/api_keys

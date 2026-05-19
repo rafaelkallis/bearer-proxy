@@ -123,6 +123,21 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Build test image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          build-args: BASE_IMAGE=nginx:${{ matrix.base_tag }}
+          tags: bearer-proxy:test
+          load: true
+
+      - name: Run unit tests
+        run: sh tests/unit.sh
+
+      - name: Run integration tests
+        run: sh tests/integration.sh
+
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
