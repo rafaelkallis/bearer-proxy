@@ -1,0 +1,140 @@
+name: Build and Publish
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      watched_tags:
+        description: 'Space-separated nginx base tags to watch (overrides default)'
+        required: false
+        type: string
+        default: 'latest alpine trixie'  # keep in sync with discover job env below
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io/rafaelkallis/bearer-proxy
+  OFFICIAL_IMAGES_URL: https://raw.githubusercontent.com/docker-library/official-images/master/library/nginx
+
+jobs:
+  discover:
+    name: Discover nginx tag groups
+    runs-on: ubuntu-latest
+    env:
+      # keep in sync with workflow_dispatch input default above
+      WATCHED_TAGS: ${{ inputs.watched_tags || 'latest alpine trixie' }}
+    outputs:
+      matrix: ${{ steps.discover.outputs.matrix }}
+    steps:
+      - name: Discover tag groups
+        id: discover
+        run: |
+          python3 - <<'PYEOF'
+          import sys, json, os
+          import urllib.request
+
+          WATCHED = os.environ['WATCHED_TAGS'].split()
+          REGISTRY = os.environ['REGISTRY']
+          URL = os.environ['OFFICIAL_IMAGES_URL']
+
+          FIELD_KEYS = (
+              'Tags:', 'SharedTags:', 'Architectures:', 'GitCommit:',
+              'Directory:', 'GitRepo:', 'Maintainers:', 'File:', 'Constraints:',
+          )
+
+          def parse_tag_groups(content):
+              groups = []
+              current_tags = []
+              in_tags = False
+              for raw_line in content.splitlines():
+                  line = raw_line.strip()
+                  if not line or line.startswith('#'):
+                      if current_tags:
+                          groups.append(current_tags[:])
+                          current_tags = []
+                      in_tags = False
+                      continue
+                  if line.startswith('Tags:'):
+                      if current_tags:
+                          groups.append(current_tags[:])
+                      in_tags = True
+                      tag_part = line[5:].strip().rstrip(',')
+                      current_tags = [t.strip() for t in tag_part.split(',') if t.strip()]
+                  elif in_tags and not any(line.startswith(k) for k in FIELD_KEYS):
+                      current_tags.extend(
+                          [t.strip() for t in line.rstrip(',').split(',') if t.strip()]
+                      )
+                  else:
+                      in_tags = False
+              if current_tags:
+                  groups.append(current_tags)
+              return groups
+
+          with urllib.request.urlopen(URL) as r:
+              content = r.read().decode()
+
+          tag_groups = parse_tag_groups(content)
+          print(f'Found {len(tag_groups)} tag groups in official-images', file=sys.stderr)
+
+          seen = set()
+          matrix = []
+          for watched in WATCHED:
+              for group in tag_groups:
+                  if watched in group:
+                      key = tuple(sorted(group))
+                      if key not in seen:
+                          seen.add(key)
+                          tags = '\n'.join(f'{REGISTRY}:{t}' for t in group)
+                          matrix.append({'base_tag': watched, 'tags': tags})
+                      break
+              else:
+                  print(f'WARNING: "{watched}" not found in official-images', file=sys.stderr)
+
+          print(f'Building {len(matrix)} image(s): {[m["base_tag"] for m in matrix]}', file=sys.stderr)
+
+          output = json.dumps(matrix)
+          github_output = os.environ.get('GITHUB_OUTPUT', '')
+          if github_output:
+              with open(github_output, 'a') as f:
+                  f.write(f'matrix={output}\n')
+          else:
+              print(f'matrix={output}')
+          PYEOF
+
+  build:
+    name: Build and Push (${{ matrix.base_tag }})
+    needs: discover
+    if: ${{ needs.discover.outputs.matrix != '[]' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.discover.outputs.matrix) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          build-args: BASE_IMAGE=nginx:${{ matrix.base_tag }}
+          tags: ${{ matrix.tags }}
+          push: true
