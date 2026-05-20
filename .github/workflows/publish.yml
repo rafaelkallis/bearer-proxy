@@ -18,6 +18,7 @@ permissions:
 env:
   REGISTRY: ghcr.io/rafaelkallis/bearer-proxy
   OFFICIAL_IMAGES_URL: https://raw.githubusercontent.com/docker-library/official-images/master/library/nginx
+  ANNOTATION_PREFIX: com.rafaelkallis.bearer-proxy
 
 jobs:
   discover:
@@ -123,7 +124,42 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Get upstream nginx digest
+        id: upstream
+        run: |
+          DIGEST=$(docker buildx imagetools inspect nginx:${{ matrix.base_tag }} \
+            --format '{{json .Manifest.Digest}}' | tr -d '"')
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+
+      - name: Check if push needed
+        id: skip-check
+        run: |
+          EXISTING_BASE=$(docker buildx imagetools inspect \
+            ${{ env.REGISTRY }}:${{ matrix.base_tag }} \
+            --format '{{ index .Manifest.Annotations "${{ env.ANNOTATION_PREFIX }}.base-image-digest" }}' \
+            2>/dev/null || echo "")
+          EXISTING_COMMIT=$(docker buildx imagetools inspect \
+            ${{ env.REGISTRY }}:${{ matrix.base_tag }} \
+            --format '{{ index .Manifest.Annotations "${{ env.ANNOTATION_PREFIX }}.git-commit" }}' \
+            2>/dev/null || echo "")
+          if [ "$EXISTING_BASE" = "${{ steps.upstream.outputs.digest }}" ] \
+            && [ -n "$EXISTING_BASE" ] \
+            && [ "$EXISTING_COMMIT" = "${{ github.sha }}" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Upstream and commit unchanged — skipping build and push."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build test image
+        if: steps.skip-check.outputs.skip != 'true'
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -133,23 +169,23 @@ jobs:
           load: true
 
       - name: Run unit tests
+        if: steps.skip-check.outputs.skip != 'true'
         run: sh tests/unit.sh
 
       - name: Run integration tests
+        if: steps.skip-check.outputs.skip != 'true'
         run: sh tests/integration.sh
 
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Build and push
+        if: steps.skip-check.outputs.skip != 'true'
         uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           build-args: BASE_IMAGE=nginx:${{ matrix.base_tag }}
           tags: ${{ matrix.tags }}
+          provenance: false
+          annotations: |
+            index:${{ env.ANNOTATION_PREFIX }}.base-image-digest=${{ steps.upstream.outputs.digest }}
+            index:${{ env.ANNOTATION_PREFIX }}.git-commit=${{ github.sha }}
           push: true

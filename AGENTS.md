@@ -66,7 +66,11 @@ See README.md for Docker Compose examples covering Cloudflare Tunnel, host-expos
 
 **Tag discovery**: the `discover` job fetches `OFFICIAL_IMAGES_URL` (the `docker-library/official-images` library file for nginx — the same source Docker Hub uses) and parses all `Tags:` blocks into alias clusters. For each entry in `WATCHED_TAGS`, it finds the cluster containing that tag and deduplicates (e.g. `latest` and `trixie` resolve to the same cluster → one build).
 
-**Build**: the `build` job runs one matrix entry per cluster. Each entry: (1) builds a `linux/amd64` image with `BASE_IMAGE=nginx:<watched_tag>` and loads it locally as `bearer-proxy:test`; (2) runs `tests/unit.sh` and `tests/integration.sh` against it; (3) if tests pass, builds the final multi-arch image (`linux/amd64`, `linux/arm64`) and pushes it to GHCR tagged with every alias in the cluster. Tests always run against the exact base image about to be published.
+**Build**: the `build` job runs one matrix entry per cluster. After logging in to GHCR it checks two OCI annotations stored on the existing manifest index (`com.rafaelkallis.bearer-proxy.base-image-digest` and `com.rafaelkallis.bearer-proxy.git-commit`). If both match the current upstream nginx digest and `github.sha`, the entry is skipped entirely — no build, no tests, no push. Otherwise: (1) builds a `linux/amd64` image with `BASE_IMAGE=nginx:<watched_tag>` and loads it locally as `bearer-proxy:test`; (2) runs `tests/unit.sh` and `tests/integration.sh` against it; (3) if tests pass, builds the final multi-arch image (`linux/amd64`, `linux/arm64`) with `provenance: false` and pushes it to GHCR tagged with every alias in the cluster, writing the two annotations to the manifest index for the next run's comparison.
+
+**Annotations** (prefix `com.rafaelkallis.bearer-proxy.*`):
+- `base-image-digest` — the upstream `nginx:<watched_tag>` manifest digest at build time
+- `git-commit` — the `github.sha` of this repo at build time
 
 **To change watched tags**: edit the two `'latest alpine trixie'` literals in the workflow — the `workflow_dispatch` input `default:` (for UI) and the `WATCHED_TAGS` env fallback (for scheduled runs). Both must stay in sync.
 
