@@ -20,4 +20,4 @@ ENV CLIENT_MAX_BODY_SIZE="128m"
 ENV API_KEYS_FILE="/run/secrets/api_keys"
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-  CMD wget -qO- http://localhost:9494/health || exit 1
+  CMD wget -qO- http://127.0.0.1:9494/health || exit 1
